@@ -22,32 +22,17 @@ HungarianAlgorithm::~HungarianAlgorithm(){}
 //********************************************************//
 // A single function wrapper for solving assignment problem.
 //********************************************************//
-double HungarianAlgorithm::Solve(vector <vector<double> >& DistMatrix, vector<int>& Assignment)
+// Mind the index is "i + nRows * j".
+// Here the cost matrix of size MxN is defined as a double precision array of N*M elements. 
+double HungarianAlgorithm::Solve(const vector<double>& DistMatrix, vector<int>& Assignment,
+                                 int nRows, int nCols)
 {
-	unsigned int nRows = DistMatrix.size();
-	unsigned int nCols = DistMatrix[0].size();
-
-	double *distMatrixIn = new double[nRows * nCols];
-	int *assignment = new int[nRows];
-	double cost = 0.0;
-
-	// Fill in the distMatrixIn. Mind the index is "i + nRows * j".
-	// Here the cost matrix of size MxN is defined as a double precision array of N*M elements. 
-	// In the solving functions matrices are seen to be saved MATLAB-internally in row-order.
-	// (i.e. the matrix [1 2; 3 4] will be stored as a vector [1 3 2 4], NOT [1 2 3 4]).
-	for (unsigned int i = 0; i < nRows; i++)
-		for (unsigned int j = 0; j < nCols; j++)
-			distMatrixIn[i + nRows * j] = DistMatrix[i][j];
+  Assignment.resize(nRows);
 	
 	// call solving function
-	assignmentoptimal(assignment, &cost, distMatrixIn, nRows, nCols);
+  double cost = assignmentoptimal(Assignment.data(), DistMatrix.data(), nRows, nCols);
 
-	Assignment.clear();
-	for (unsigned int r = 0; r < nRows; r++)
-		Assignment.push_back(assignment[r]);
 
-	delete[] distMatrixIn;
-	delete[] assignment;
 	return cost;
 }
 
@@ -55,14 +40,14 @@ double HungarianAlgorithm::Solve(vector <vector<double> >& DistMatrix, vector<in
 //********************************************************//
 // Solve optimal solution for assignment problem using Munkres algorithm, also known as Hungarian Algorithm.
 //********************************************************//
-void HungarianAlgorithm::assignmentoptimal(int *assignment, double *cost, double *distMatrixIn, int nOfRows, int nOfColumns)
+double HungarianAlgorithm::assignmentoptimal(int *assignment, const double *distMatrixIn, int nOfRows, int nOfColumns)
 {
+  double cost = 0;
 	double *distMatrix, *distMatrixTemp, *distMatrixEnd, *columnEnd, value, minValue;
 	bool *coveredColumns, *coveredRows, *starMatrix, *newStarMatrix, *primeMatrix;
 	int nOfElements, minDim, row, col;
 
 	/* initialization */
-	*cost = 0;
 	for (row = 0; row<nOfRows; row++)
 		assignment[row] = -1;
 
@@ -171,7 +156,7 @@ void HungarianAlgorithm::assignmentoptimal(int *assignment, double *cost, double
 	step2b(assignment, distMatrix, starMatrix, newStarMatrix, primeMatrix, coveredColumns, coveredRows, nOfRows, nOfColumns, minDim);
 
 	/* compute cost and remove invalid assignments */
-	computeassignmentcost(assignment, cost, distMatrixIn, nOfRows);
+  cost = computeassignmentcost(assignment, cost, distMatrixIn, nOfRows);
 
 	/* free allocated memory */
 	free(distMatrix);
@@ -181,7 +166,7 @@ void HungarianAlgorithm::assignmentoptimal(int *assignment, double *cost, double
 	free(primeMatrix);
 	free(newStarMatrix);
 
-	return;
+  return cost;
 }
 
 /********************************************************/
@@ -193,26 +178,23 @@ void HungarianAlgorithm::buildassignmentvector(int *assignment, bool *starMatrix
 		for (col = 0; col<nOfColumns; col++)
 			if (starMatrix[row + nOfRows*col])
 			{
-#ifdef ONE_INDEXING
-				assignment[row] = col + 1; /* MATLAB-Indexing */
-#else
 				assignment[row] = col;
-#endif
 				break;
 			}
 }
 
 /********************************************************/
-void HungarianAlgorithm::computeassignmentcost(int *assignment, double *cost, double *distMatrix, int nOfRows)
+double HungarianAlgorithm::computeassignmentcost(int *assignment, double initial_cost, const double *distMatrix, int nOfRows)
 {
 	int row, col;
-
+  double cost = initial_cost;
 	for (row = 0; row<nOfRows; row++)
 	{
 		col = assignment[row];
 		if (col >= 0)
-			*cost += distMatrix[row + nOfRows*col];
+      cost += distMatrix[row + nOfRows*col];
 	}
+  return cost;
 }
 
 /********************************************************/
