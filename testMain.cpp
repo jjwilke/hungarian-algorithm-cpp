@@ -15,28 +15,37 @@ int main(int argc, char** argv)
   int nRows = atoi(argv[1]);
   int sparsePercent = atoi(argv[2]);
   int nCols = nRows;
-  std::vector<double> costMatrix(nRows*nCols);
   double lower_bound = 0;
   double upper_bound = 100;
   std::uniform_real_distribution<double> unif(lower_bound,upper_bound);
   std::default_random_engine re;
+
+  std::vector<double> vals;
+  std::vector<int> offsets;
+  std::vector<int> cols;
+
+  int numTotal = 0;
   for (int r=0; r < nRows; ++r){
-    printf("[");
+    offsets.push_back(numTotal);
+    int numInRow = 0;
+    //printf("[");
     for (int c=0; c < nCols; ++c){
-      int edgeIndex = r + c*nRows;
       double test = unif(re);
       if (test < sparsePercent){
-        costMatrix[edgeIndex] = 0;
-      } else {
-        costMatrix[edgeIndex] = unif(re);
-        //costMatrix[edgeIndex] = (r*nCols + c) % 10;
+        double val = unif(re);
+        vals.push_back(val);
+        ++numInRow;
+        cols.push_back(c);
+        //printf(" %2d:%8.4f", c, val);
       }
-      printf(" %8.4f", costMatrix[edgeIndex]);
     }
-    printf(" ]\n");
+    //printf(" ]\n");
+    numTotal += numInRow;
   }
+  offsets.push_back(numTotal);
+  std::cout << "No. nonzeros: " << numTotal << std::endl;
 
-  auto mat = CSRMatrix<double>::createDense(std::move(costMatrix), nRows, nCols);
+  CSRMatrix<double> mat(std::move(vals), std::move(offsets), std::move(cols), nCols);
 
   HungarianAlgorithm HungAlgo(mat);
   double cost = HungAlgo.solve(mat);
@@ -51,6 +60,7 @@ int main(int argc, char** argv)
     std::cout << row << "," << absCol << "\t";
     costCheck += mat.valueAt(rowOffset + col);
   }
+
 
 	std::cout << "\ncost:  " << cost << std::endl;
   std::cout <<  "check:  " << costCheck << std::endl;

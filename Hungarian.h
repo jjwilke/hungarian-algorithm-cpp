@@ -128,7 +128,7 @@ public:
   double solve(const CSRMatrix<double>& m);
 
   const std::vector<int>& assignment() const {
-    return coveredRows_;
+    return starredRows_;
   }
 
 private:
@@ -142,11 +142,11 @@ private:
                      int& numCoveredRows, int& numCoveredCols);
 
  private:
-  std::vector<bool> markedCols_;
-  std::vector<bool> markedRows_;
-  std::vector<int> coveredColumns_;
+  std::vector<int> starredCols_;
+  std::vector<int> starredRows_;
+  std::vector<bool> coveredColumns_;
   //stores RELATIVE column numbers, ot absoluate column numbers
-  std::vector<int> coveredRows_;
+  std::vector<bool> coveredRows_;
 };
 
 

@@ -15,15 +15,20 @@
 #include "Hungarian.h"
 
 #define IS_ZERO(x) (fabs(x) < DBL_EPSILON)
-#define debugLine(str, ...) printf(str "\n", __VA_ARGS__)
-#define debug(str, ...) printf(str, __VA_ARGS__)
-#define debugNL() printf("\n"); fflush(stdout)
+
+//#define debugLine(str, ...) printf(str "\n", __VA_ARGS__)
+//#define debug(str, ...) printf(str, __VA_ARGS__)
+//#define debugNL() printf("\n"); fflush(stdout)
+
+#define debugLine(str, ...)
+#define debug(str, ...)
+#define debugNL()
 
 HungarianAlgorithm::HungarianAlgorithm(const CSRMatrix<double>& matrix) :
   coveredColumns_(matrix.nCols(), -1),
   coveredRows_(matrix.nRows(), -1),
-  markedCols_(matrix.nCols(), false),
-  markedRows_(matrix.nRows(), false)
+  starredCols_(matrix.nCols(), -1),
+  starredRows_(matrix.nRows(), -1)
 {
 }
 
@@ -39,10 +44,10 @@ double HungarianAlgorithm::solve(const CSRMatrix<double>& matrix)
   double max = matrix.max();
   auto inverted = matrix.mutate([=](double inp) -> double { return max + 1 - inp; } );
 
-  std::fill(markedCols_.begin(), markedCols_.end(), false);
-  std::fill(markedRows_.begin(), markedRows_.end(), false);
-  std::fill(coveredColumns_.begin(), coveredColumns_.end(), -1);
-  std::fill(coveredRows_.begin(), coveredRows_.end(), -1);
+  std::fill(starredCols_.begin(), starredCols_.end(), -1);
+  std::fill(starredRows_.begin(), starredRows_.end(), -1);
+  std::fill(coveredColumns_.begin(), coveredColumns_.end(), false);
+  std::fill(coveredRows_.begin(), coveredRows_.end(), false);
 
 	// call solving function
   step2(inverted);
@@ -68,7 +73,7 @@ double HungarianAlgorithm::computeCost(const CSRMatrix<double>& matrix)
   int nOfRows = matrix.nRows();
   for (int row = 0; row<nOfRows; row++){
     //assignment stores RELATIVE col indices
-    int col = coveredRows_[row];
+    int col = starredRows_[row];
     if (col >= 0){
       int rowOffset = matrix.rowOffset(row);
       cost += matrix.valueAt(rowOffset + col);
@@ -126,46 +131,88 @@ void HungarianAlgorithm::step3(CSRMatrix<double>& matrix)
   int numSteps = 0;
   while (true){
     //this is the "drawing" portion where we have to mark all rows and columns with zeros
-    //std::fill(colsCrossedOut.begin(), colsCrossedOut.end(), false);
-    //std::fill(coveredRows_.begin(), coveredRows_.end(), -1);
-    //std::fill(coveredColumns_.begin(), coveredColumns_.end(), -1);
+    std::fill(coveredRows_.begin(), coveredRows_.end(), false);
+    std::fill(coveredColumns_.begin(), coveredColumns_.end(), false);
+    std::fill(starredCols_.begin(), starredCols_.end(), -1);
     int numOfRows = matrix.nRows();
     double* rowValues;
     int* colInds;
     int nCols;
+    int numStarredRows = 0;
     int numCoveredRows = 0;
     int numCoveredCols = 0;
 
     for (int row=0; row < numOfRows; ++row){
       std::tie(nCols, rowValues, colInds) = matrix.getRow(row);
-      if (coveredRows_[row] == -1){
-        for (int col=0; col < nCols; ++col){
-          int absCol = colInds[col];
-          if (IS_ZERO(rowValues[col]) && coveredColumns_[absCol] == -1){
-            debugLine("Covering row=%d col=%d:%d", row, absCol, col);
-            coveredColumns_[absCol]  = row;
-            coveredRows_[row] = col;
-            ++numCoveredRows;
-            break;
-            //otherwise keeping going until I find another zero
-          }
+      starredRows_[row] = -1;
+      for (int col=0; col < nCols; ++col){
+        int absCol = colInds[col];
+        if (IS_ZERO(rowValues[col]) && starredCols_[absCol] == -1){
+          debugLine("Starring and covering row=%d col=%d:%d", row, absCol, col);
+          starredCols_[absCol]  = row;
+          starredRows_[row] = col;
+          coveredRows_[row] = true;
+          ++numStarredRows;
+          ++numCoveredRows;
+          break;
+          //otherwise keep going until I find another zero
         }
-      } else {
-        ++numCoveredRows;
       }
     }
 
-    if (numCoveredRows == numOfRows){
+    if (numStarredRows == numOfRows){
       return; //we got em all!
     } else {
-      debugLine("Continuing to step 4 with %d covered rows", numCoveredRows);
+      debugLine("Continuing to later steps with %d covered rows", numStarredRows);
     }
 
-    std::fill(markedRows_.begin(), markedRows_.end(), false);
-    std::fill(markedCols_.begin(), markedCols_.end(), false);
-    numCoveredRows = matrix.nRows();
-    std::deque<int> rowsToVisit;
-    for (int row=0; row < numOfRows; ++row){
+    int nextRow = 0;
+    int row = 0;
+    std::vector<int> uncoveredRows;
+    while (nextRow < numOfRows || !uncoveredRows.empty()){
+      //we are either looping through uncovered rows
+      //or bouncing around to columns
+
+      if (uncoveredRows.empty()){
+        row = nextRow++;
+      } else {
+        row = uncoveredRows.back();
+        uncoveredRows.pop_back();
+      }
+      if (!coveredRows_[row]){
+        debugLine("Visting row %d", row);
+        std::tie(nCols, rowValues, colInds) = matrix.getRow(row);
+        for (int col=0; col < nCols; ++col){
+          int absCol = colInds[col];
+          if (row == 0){
+            debugLine("Row[%d:%d] = %8.4f ? %s", col, absCol, rowValues[col],
+                      (coveredColumns_[absCol] ? "true" : "false"));
+          }
+          if (IS_ZERO(rowValues[col]) && !coveredColumns_[absCol]){
+            if (starredCols_[absCol] != -1){ //cover the zeroes
+              //cover the column, uncover the row previously covered
+              int uncoveredRow = starredCols_[absCol];
+              debugLine("Covering column %d, uncovering row %d", absCol, uncoveredRow);
+              coveredRows_[uncoveredRow] = false;
+              --numCoveredRows;
+              uncoveredRows.push_back(uncoveredRow);
+            } else {
+              debugLine("Just covering column %d", absCol);
+            }
+            coveredColumns_[absCol] = true;
+            ++numCoveredCols;
+          }
+        }
+      }
+    }
+
+    if ((numCoveredCols + numCoveredRows) == numOfRows){
+      std::cerr << "I have a unique solution!" << std::endl;
+      abort();
+    }
+
+
+    /**
       while (!rowsToVisit.empty()){
         int nextRow = rowsToVisit.front();
         rowsToVisit.pop_front();
@@ -176,20 +223,22 @@ void HungarianAlgorithm::step3(CSRMatrix<double>& matrix)
         visitRowStep3(matrix, row, rowsToVisit, numCoveredRows, numCoveredCols);
       }
     }
-    debugLine("Have %d column lines and %d row lines", numCoveredCols, numCoveredRows);
-    if ((numCoveredCols + numCoveredRows) == matrix.nRows()){
-      findKnownOptimal(matrix);
-      return;
-    } else {
-      step4(matrix);
-      ++numSteps;
-      if (numSteps == 5) abort();
+    //clean up deque at the end
+    while (!rowsToVisit.empty()){
+      int nextRow = rowsToVisit.front();
+      rowsToVisit.pop_front();
+      visitRowStep3(matrix, nextRow, rowsToVisit, numCoveredRows, numCoveredCols);
     }
+    */
+
+    step4(matrix);
+    ++numSteps;
   }
 }
 
 void HungarianAlgorithm::findKnownOptimal(CSRMatrix<double>& matrix)
 {
+  /**
   int numOfRows = matrix.nRows();
   double* rowValues;
   int* colInds;
@@ -219,11 +268,13 @@ void HungarianAlgorithm::findKnownOptimal(CSRMatrix<double>& matrix)
       }
     }
   }
+  */
 }
 
 void HungarianAlgorithm::visitRowStep3(CSRMatrix<double>& matrix, int row, std::deque<int>& rowsToVisit,
                                        int& numCoveredRows, int& numCoveredCols)
 {
+  /**
   //I don't have an assignment
   markedRows_[row] = true;
   --numCoveredRows;
@@ -249,6 +300,7 @@ void HungarianAlgorithm::visitRowStep3(CSRMatrix<double>& matrix, int row, std::
       }
     }
   }
+  */
 }
 
 /********************************************************/
@@ -261,17 +313,37 @@ void HungarianAlgorithm::step4(CSRMatrix<double>& matrix)
   int* colInds;
   int nCols;
 
+  for (int row=0; row < nOfRows; ++row){
+    if (coveredRows_[row]){
+      debugLine("Row %d covered", row);
+    }
+  }
+
+  for (int col=0; col < matrix.nCols(); ++col){
+    if (coveredColumns_[col]){
+      debugLine("Cols %d covered", col);
+    }
+  }
+
   //the "covering" of zeros is all marked columns and unmarked rows
   for (int row = 0; row<nOfRows; row++){
-    if (markedRows_[row]){
+    if (!coveredRows_[row]){
       std::tie(nCols, rowValues, colInds) = matrix.getRow(row);
       for (int col = 0; col< nCols; col++){
         int absCol = colInds[col];
-        if (!markedCols_[absCol]){
+        if (!coveredColumns_[absCol]){
           h = std::min(h, rowValues[col]);
         }
       }
     }
+  }
+  if (h == std::numeric_limits<double>::max()){
+    std::cerr << "No minimum found - nothing covered!" << std::endl;
+    abort();
+  }
+  if (h == 0){
+    std::cerr << "Zero minimum found - left zeroes uncovered!" << std::endl;
+    abort();
   }
   debugLine("Substracting minimum %10.4f", h);
 
@@ -279,11 +351,11 @@ void HungarianAlgorithm::step4(CSRMatrix<double>& matrix)
    * the net effect is to substract from all uncovered, add to all covered twice
   */
   for (int row = 0; row<nOfRows; row++){
-    double rowAdd = markedRows_[row] ? 0 : h;
+    double rowAdd = coveredRows_[row] ? h : 0;
     std::tie(nCols, rowValues, colInds) = matrix.getRow(row);
     for (int col = 0; col<nCols; col++){
       int absCol = colInds[col];
-      double colAdd = markedCols_[absCol] ? 0 : -h;
+      double colAdd = coveredColumns_[absCol] ? 0 : -h;
       rowValues[col] += rowAdd + colAdd;
       debug(" %d:%d %8.4f", col, absCol, rowValues[col]);
     }

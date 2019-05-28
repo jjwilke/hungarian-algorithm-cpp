@@ -1,5 +1,5 @@
 CC = g++
-CFLAGS = -std=c++11 -O0 -g
+CFLAGS = -std=c++11 -O3
 
 test: main.o hung.o
 	$(CC) -o test main.o hung.o
