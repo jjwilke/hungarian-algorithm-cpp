@@ -1,6 +1,7 @@
 #include <iostream>
 #include "Hungarian.h"
 #include <random>
+#include <set>
 
 
 int main(int argc, char** argv)
@@ -52,12 +53,20 @@ int main(int argc, char** argv)
 
   auto& assignment = HungAlgo.assignment();
 
+  std::set<int> validate;
+
   double costCheck = 0;
   for (int row = 0; row < nRows; row++){
     int rowOffset = mat.rowOffset(row);
     int col = assignment[row];
     int absCol = mat.colAt(rowOffset + col);
-    std::cout << row << "," << absCol << "\t";
+    auto iter = validate.find(absCol);
+    //std::cout << row << "," << absCol << "\t";
+    if (iter != validate.end()){
+      std::cerr << "Column appears twice!" << std::endl;
+      return 1;
+    }
+    validate.insert(absCol);
     costCheck += mat.valueAt(rowOffset + col);
   }
 

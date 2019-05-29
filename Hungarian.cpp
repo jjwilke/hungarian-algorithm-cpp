@@ -16,13 +16,15 @@
 
 #define IS_ZERO(x) (fabs(x) < DBL_EPSILON)
 
-//#define debugLine(str, ...) printf(str "\n", __VA_ARGS__)
-//#define debug(str, ...) printf(str, __VA_ARGS__)
-//#define debugNL() printf("\n"); fflush(stdout)
-
+#if 0
+#define debugLine(str, ...) printf(str "\n", __VA_ARGS__)
+#define debug(str, ...) printf(str, __VA_ARGS__)
+#define debugNL() printf("\n"); fflush(stdout)
+#else
 #define debugLine(str, ...)
 #define debug(str, ...)
 #define debugNL()
+#endif
 
 HungarianAlgorithm::HungarianAlgorithm(const CSRMatrix<double>& matrix) :
   coveredColumns_(matrix.nCols(), -1),
@@ -168,6 +170,7 @@ void HungarianAlgorithm::step3(CSRMatrix<double>& matrix)
 
     int nextRow = 0;
     int row = 0;
+    std::vector<int> colsToCover;
     std::vector<int> uncoveredRows;
     while (nextRow < numOfRows || !uncoveredRows.empty()){
       //we are either looping through uncovered rows
@@ -179,36 +182,52 @@ void HungarianAlgorithm::step3(CSRMatrix<double>& matrix)
         row = uncoveredRows.back();
         uncoveredRows.pop_back();
       }
+
       if (!coveredRows_[row]){
         debugLine("Visting row %d", row);
         std::tie(nCols, rowValues, colInds) = matrix.getRow(row);
+        bool foundUnownedZero = false;
         for (int col=0; col < nCols; ++col){
           int absCol = colInds[col];
-          if (row == 0){
-            debugLine("Row[%d:%d] = %8.4f ? %s", col, absCol, rowValues[col],
-                      (coveredColumns_[absCol] ? "true" : "false"));
-          }
           if (IS_ZERO(rowValues[col]) && !coveredColumns_[absCol]){
-            if (starredCols_[absCol] != -1){ //cover the zeroes
-              //cover the column, uncover the row previously covered
-              int uncoveredRow = starredCols_[absCol];
-              debugLine("Covering column %d, uncovering row %d", absCol, uncoveredRow);
-              coveredRows_[uncoveredRow] = false;
-              --numCoveredRows;
-              uncoveredRows.push_back(uncoveredRow);
+            if (starredCols_[absCol] == -1){ //cover the zeroes
+              //oh, actually, I can cover this row without interference
+              coveredRows_[row] = true;
+              starredCols_[absCol] = row;
+              starredRows_[row] = col;
+              foundUnownedZero = true;
+              colsToCover.clear();
+              break;
             } else {
-              debugLine("Just covering column %d", absCol);
+              colsToCover.push_back(absCol);
             }
-            coveredColumns_[absCol] = true;
-            ++numCoveredCols;
           }
+
+          if (!colsToCover.empty()){
+            starredRows_[row] = colsToCover.front();
+            for (int col : colsToCover){
+              ++numCoveredCols;
+              coveredColumns_[col] = true;
+              int uncoveredRow = starredCols_[col];
+              if (uncoveredRow != -1){
+                --numCoveredRows;
+                debugLine("Uncovering row %d, covering column %d", uncoveredRow, absCol);
+                uncoveredRows.push_back(uncoveredRow);
+                coveredRows_[uncoveredRow] = false;
+              } else {
+                debugLine("Just covering column %d", absCol);
+              }
+            }
+            colsToCover.clear();
+          }
+
         }
       }
     }
 
     if ((numCoveredCols + numCoveredRows) == numOfRows){
-      std::cerr << "I have a unique solution!" << std::endl;
-      abort();
+      std::cout << "I have a unique solution!" << std::endl;
+      return;
     }
 
 
